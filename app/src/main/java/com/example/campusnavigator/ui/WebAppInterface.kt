@@ -7,12 +7,17 @@ import android.widget.Toast
 class WebAppInterface(private val context: Context, private val fragment: RouteFragment) {
 
     @JavascriptInterface
-    fun displayFloor(floorNumber: Int) {
-        fragment.loadFloorSvg(floorNumber)
+    fun displayFloor(floor: Int) {
+        fragment.loadFloorSvg(floor)
     }
 
     @JavascriptInterface
     fun clearRoute() {
         fragment.clearRoute()
+    }
+
+    @JavascriptInterface
+    fun showToast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 }

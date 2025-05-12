@@ -27,7 +27,7 @@
 <script>
     let currentFloor = 1;
     let currentRoute = [];
-    let data = { scale: 2, translateX: 0, translateY: 0, isDragging: false, initialDistance: null, activeTouches: {} };
+    let data = { scale: 1, translateX: 0, translateY: 0, isDragging: false, initialDistance: null, activeTouches: {} };
     const svgContainer = document.querySelector('.svg-container');
     const floorSvg = document.querySelector('.floor-svg');
     const routeSvg = document.querySelector('.route-svg');
@@ -38,11 +38,7 @@
         currentFloor = floorNumber;
         floorSvg.innerHTML = svgContent;
         updateTransform();
-        if (currentRoute.length > 0) {
-            displayRouteForCurrentFloor();
-        } else {
-            routeSvg.innerHTML = ''; // Очищаем маршрут, если он отсутствует
-        }
+        if (currentRoute.length > 0) displayRoute();
     };
 
     window.setFloors = function(floors) {
@@ -63,38 +59,27 @@
 
     window.displayRoute = function(routeJson) {
         currentRoute = JSON.parse(routeJson);
-        displayRouteForCurrentFloor();
+        routeSvg.innerHTML = '';
+        if (currentRoute.some(node => node.floor === currentFloor)) {
+            for (let i = 0; i < currentRoute.length - 1; i++) {
+                const from = currentRoute[i];
+                const to = currentRoute[i + 1];
+                if (from.floor === currentFloor && to.floor === currentFloor) {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", from.x);
+                    line.setAttribute("y1", from.y);
+                    line.setAttribute("x2", to.x);
+                    line.setAttribute("y2", to.y);
+                    line.setAttribute("stroke", "darkblue");
+                    line.setAttribute("stroke-width", "10");
+                    routeSvg.appendChild(line);
+                }
+            }
+            addMarkers();
+        }
         clearRouteButton.style.display = currentRoute.length > 0 ? 'block' : 'none';
         updateTransform();
     };
-
-    function displayRouteForCurrentFloor() {
-        routeSvg.innerHTML = '';
-        if (currentRoute.length === 0) return;
-
-        // Проверяем, есть ли узлы на текущем этаже
-        const hasNodesOnFloor = currentRoute.some(node => node.floor === currentFloor);
-        if (!hasNodesOnFloor) {
-            console.log(`No nodes on floor ${currentFloor}`);
-            return;
-        }
-
-        for (let i = 0; i < currentRoute.length - 1; i++) {
-            const from = currentRoute[i];
-            const to = currentRoute[i + 1];
-            if (from.floor === currentFloor && to.floor === currentFloor) {
-                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                line.setAttribute("x1", from.x);
-                line.setAttribute("y1", from.y);
-                line.setAttribute("x2", to.x);
-                line.setAttribute("y2", to.y);
-                line.setAttribute("stroke", "darkblue");
-                line.setAttribute("stroke-width", "10");
-                routeSvg.appendChild(line);
-            }
-        }
-        addMarkers();
-    }
 
     function addMarkers() {
         const startNode = currentRoute[0];
@@ -148,8 +133,10 @@
         data.translateY = Math.max(minY, Math.min(maxY, data.translateY));
     }
 
+    // Инициализация первого этажа
     window.onload = () => window.android.displayFloor(1);
 
+    // Обработчики событий
     svgContainer.addEventListener('wheel', (e) => {
         e.preventDefault();
         const scaleAmount = 0.1;

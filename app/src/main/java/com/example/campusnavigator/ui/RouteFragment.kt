@@ -1,8 +1,6 @@
 package com.example.campusnavigator.ui
 
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -44,7 +42,6 @@ class RouteFragment : Fragment() {
     private var floors: List<Int> = emptyList()
     private var currentRoute: List<Node> = emptyList()
     private var allEndpoints: List<Endpoint> = emptyList()
-
     private val floorAdapter = FloorAdapter { floor ->
         loadFloorSvg(floor)
     }
@@ -62,9 +59,11 @@ class RouteFragment : Fragment() {
         webView = view.findViewById(R.id.webview)
         floorRecyclerView = view.findViewById(R.id.floor_recycler_view)
 
+        // Настройка RecyclerView
         floorRecyclerView.layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
         floorRecyclerView.adapter = floorAdapter
 
+        // Инициализация Retrofit
         val retrofit = Retrofit.Builder()
             .baseUrl("http://10.0.2.2:8000/")
             .addConverterFactory(ScalarsConverterFactory.create())
@@ -72,6 +71,7 @@ class RouteFragment : Fragment() {
             .build()
         apiService = retrofit.create(ApiService::class.java)
 
+        // Настройка WebView
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.loadWithOverviewMode = true
@@ -88,13 +88,19 @@ class RouteFragment : Fragment() {
         view.post {
             webView.loadUrl("file:///android_asset/route.html")
             Log.d("RouteFragment", "WebView initialized and loaded route.html")
+            // Инициализация этажей
             webView.evaluateJavascript("setFloors([1, 2])", null)
+            // Загрузка первого этажа по умолчанию
             loadFloorSvg(1)
         }
 
+        // Загрузка этажей
         loadFloors()
+
+        // Настройка автодополнения
         setupAutoComplete()
 
+        // Обработчик кнопки поиска маршрута
         findRouteButton.setOnClickListener {
             findRoute()
         }
@@ -116,6 +122,10 @@ class RouteFragment : Fragment() {
                     Toast.makeText(context, "Ошибка загрузки этажей: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
                 Log.e("RouteFragment", "Error loading floors: $e")
+                if (e is retrofit2.HttpException) {
+                    val errorBody = e.response()?.errorBody()?.string() ?: "No error body"
+                    Log.e("RouteFragment", "HTTP ${e.code()} error body: $errorBody")
+                }
             }
         }
     }
@@ -125,6 +135,7 @@ class RouteFragment : Fragment() {
             try {
                 val response = apiService.getFloorSvg(floorNumber)
                 Log.d("RouteFragment", "SVG response code: ${response.code()}")
+                Log.d("RouteFragment", "SVG response headers: ${response.headers()}")
                 if (response.isSuccessful) {
                     val svgContent = response.body() ?: ""
                     Log.d("RouteFragment", "SVG content preview: ${svgContent.take(100)}")
@@ -134,111 +145,85 @@ class RouteFragment : Fragment() {
                             webView.evaluateJavascript("setSvgContent($floorNumber, `$escapedSvgContent`)", null)
                             currentFloor = floorNumber
                             Log.d("RouteFragment", "SVG loaded for floor $floorNumber, length: ${svgContent.length}")
-                            // Перерисовываем маршрут для текущего этажа
-                            if (currentRoute.isNotEmpty()) {
-                                val routeJson = Gson().toJson(currentRoute)
-                                webView.evaluateJavascript("displayRoute(`$routeJson`)", null)
-                            }
                         }
                     } else {
                         launch(Dispatchers.Main) {
                             Toast.makeText(context, "SVG для этажа $floorNumber пустой или неверный", Toast.LENGTH_SHORT).show()
                         }
+                        Log.e("RouteFragment", "Invalid SVG content for floor $floorNumber: $svgContent")
                     }
                 } else {
+                    val errorBody = response.errorBody()?.string() ?: "No error body"
                     launch(Dispatchers.Main) {
                         Toast.makeText(context, "Ошибка загрузки SVG для этажа $floorNumber: ${response.code()}", Toast.LENGTH_SHORT).show()
                     }
+                    Log.e("RouteFragment", "Failed to load SVG for floor $floorNumber: ${response.code()} - $errorBody")
                 }
             } catch (e: Exception) {
                 launch(Dispatchers.Main) {
                     Toast.makeText(context, "Ошибка сети: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
+                Log.e("RouteFragment", "Error loading SVG: $e")
             }
         }
     }
 
     private fun setupAutoComplete() {
-        val startAdapter = ArrayAdapter<String>(requireContext(), android.R.layout.simple_dropdown_item_1line)
-        val endAdapter = ArrayAdapter<String>(requireContext(), android.R.layout.simple_dropdown_item_1line)
-        startAutoComplete.setAdapter(startAdapter)
-        endAutoComplete.setAdapter(endAdapter)
-
-        // Загружаем полный список точек при инициализации
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                allEndpoints = apiService.getEndpoints("*") // Используем "*" для получения всех точек
+                // Получаем все точки
+                allEndpoints = apiService.getEndpoints("")
                 val sortedLabels = allEndpoints.map { it.label }.sorted()
+                val adapter = ArrayAdapter(
+                    requireContext(),
+                    android.R.layout.simple_dropdown_item_1line,
+                    sortedLabels
+                )
                 launch(Dispatchers.Main) {
-                    startAdapter.clear()
-                    startAdapter.addAll(sortedLabels)
-                    startAdapter.notifyDataSetChanged()
-                    endAdapter.clear()
-                    endAdapter.addAll(sortedLabels)
-                    endAdapter.notifyDataSetChanged()
-                    Log.d("RouteFragment", "Loaded ${allEndpoints.size} endpoints for autocomplete")
+                    startAutoComplete.setAdapter(adapter)
+                    endAutoComplete.setAdapter(adapter)
+
+                    startAutoComplete.setOnItemClickListener { parent, _, position, _ ->
+                        val selectedLabel = parent.getItemAtPosition(position) as String
+                        val selectedEndpoint = allEndpoints.find { it.label == selectedLabel }
+                        if (selectedEndpoint != null) {
+                            startAutoComplete.tag = selectedEndpoint.node_id
+                            startAutoComplete.setText(selectedEndpoint.label, false)
+                            Log.d("RouteFragment", "Start selected: ${selectedEndpoint.label} (node_id: ${selectedEndpoint.node_id})")
+                        }
+                    }
+
+                    endAutoComplete.setOnItemClickListener { parent, _, position, _ ->
+                        val selectedLabel = parent.getItemAtPosition(position) as String
+                        val selectedEndpoint = allEndpoints.find { it.label == selectedLabel }
+                        if (selectedEndpoint != null) {
+                            endAutoComplete.tag = selectedEndpoint.node_id
+                            endAutoComplete.setText(selectedEndpoint.label, false)
+                            Log.d("RouteFragment", "End selected: ${selectedEndpoint.label} (node_id: ${selectedEndpoint.node_id})")
+                        }
+                    }
+
+                    // Показываем выпадающий список при фокусе
+                    startAutoComplete.setOnClickListener { startAutoComplete.showDropDown() }
+                    endAutoComplete.setOnClickListener { endAutoComplete.showDropDown() }
+
+                    // Фильтрация при вводе текста
+                    startAutoComplete.setOnTouchListener { _, _ ->
+                        startAutoComplete.showDropDown()
+                        false
+                    }
+                    endAutoComplete.setOnTouchListener { _, _ ->
+                        endAutoComplete.showDropDown()
+                        false
+                    }
                 }
             } catch (e: Exception) {
                 launch(Dispatchers.Main) {
                     Toast.makeText(context, "Ошибка загрузки точек: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
-                Log.e("RouteFragment", "Error loading endpoints: $e")
+                Log.e("RouteFragment", "Error setting up autocomplete: $e")
             }
         }
-
-        // Динамическая фильтрация при вводе текста
-        val textWatcher = object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                val query = s.toString()
-                lifecycleScope.launch(Dispatchers.IO) {
-                    try {
-                        val filteredEndpoints = apiService.getEndpoints(query)
-                        val sortedLabels = filteredEndpoints.map { it.label }.sorted()
-                        launch(Dispatchers.Main) {
-                            val adapter = if (s === startAutoComplete.text) startAdapter else endAdapter
-                            adapter.clear()
-                            adapter.addAll(sortedLabels)
-                            adapter.notifyDataSetChanged()
-                            if (query.isNotEmpty()) {
-                                (if (s === startAutoComplete.text) startAutoComplete else endAutoComplete).showDropDown()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("RouteFragment", "Error filtering endpoints: $e")
-                    }
-                }
-            }
-        }
-
-        startAutoComplete.addTextChangedListener(textWatcher)
-        endAutoComplete.addTextChangedListener(textWatcher)
-
-        startAutoComplete.setOnItemClickListener { parent, _, position, _ ->
-            val selectedLabel = parent.getItemAtPosition(position) as String
-            val selectedEndpoint = allEndpoints.find { it.label == selectedLabel }
-            if (selectedEndpoint != null) {
-                startAutoComplete.tag = selectedEndpoint.node_id
-                startAutoComplete.setText(selectedEndpoint.label, false)
-                Log.d("RouteFragment", "Start selected: ${selectedEndpoint.label} (node_id: ${selectedEndpoint.node_id})")
-            }
-        }
-
-        endAutoComplete.setOnItemClickListener { parent, _, position, _ ->
-            val selectedLabel = parent.getItemAtPosition(position) as String
-            val selectedEndpoint = allEndpoints.find { it.label == selectedLabel }
-            if (selectedEndpoint != null) {
-                endAutoComplete.tag = selectedEndpoint.node_id
-                endAutoComplete.setText(selectedEndpoint.label, false)
-                Log.d("RouteFragment", "End selected: ${selectedEndpoint.label} (node_id: ${selectedEndpoint.node_id})")
-            }
-        }
-
-        startAutoComplete.setOnClickListener { startAutoComplete.showDropDown() }
-        endAutoComplete.setOnClickListener { endAutoComplete.showDropDown() }
-        startAutoComplete.setOnTouchListener { _, _ -> startAutoComplete.showDropDown(); false }
-        endAutoComplete.setOnTouchListener { _, _ -> endAutoComplete.showDropDown(); false }
     }
 
     private fun findRoute() {
@@ -280,16 +265,20 @@ class RouteFragment : Fragment() {
                         launch(Dispatchers.Main) {
                             Toast.makeText(context, "Маршрут не найден", Toast.LENGTH_SHORT).show()
                         }
+                        Log.e("RouteFragment", "Route data is null: $responseBody")
                     }
                 } else {
+                    val errorBody = response.errorBody()?.string() ?: "No error body"
                     launch(Dispatchers.Main) {
                         Toast.makeText(context, "Ошибка поиска маршрута: ${response.code()}", Toast.LENGTH_SHORT).show()
                     }
+                    Log.e("RouteFragment", "Failed to find route: ${response.code()} - $errorBody")
                 }
             } catch (e: Exception) {
                 launch(Dispatchers.Main) {
                     Toast.makeText(context, "Ошибка сети: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
+                Log.e("RouteFragment", "Error finding route: $e")
             }
         }
     }
@@ -297,7 +286,7 @@ class RouteFragment : Fragment() {
     fun clearRoute() {
         currentRoute = emptyList()
         webView.evaluateJavascript("displayRoute('[]')", null)
-        loadFloorSvg(1)
+        loadFloorSvg(1) // Возвращаем на первый этаж
         startAutoComplete.setText("")
         startAutoComplete.tag = null
         endAutoComplete.setText("")
