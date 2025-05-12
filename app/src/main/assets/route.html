@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Route Display</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #e9ecef; }
+        .svg-container { position: relative; width: 100%; height: 600px; border: 1px solid #ced4da; border-radius: .25rem; }
+        .floor-svg, .route-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.3s ease; }
+        #floor-buttons { position: absolute; top: 20px; right: 20px; z-index: 999; display: flex; flex-direction: column; gap: 10px; }
+        #floor-buttons button { transition: transform 0.3s ease, background-color 0.3s ease; opacity: 0.9; }
+        #floor-buttons button:hover { transform: scale(1.05); opacity: 1; }
+        .active-floor-highlight { background-color: #0d6efd !important; color: #fff !important; }
+        #clear-route { position: absolute; top: 70px; right: 20px; z-index: 999; transition: background-color 0.3s ease; }
+        #clear-route:hover { background-color: #e2e6ea; }
+    </style>
+</head>
+<body>
+<div class="svg-container">
+    <svg class="floor-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4500 2500"></svg>
+    <svg class="route-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4500 2500"></svg>
+    <div id="floor-buttons"></div>
+    <button id="clear-route" class="btn btn-outline-secondary">Очистить маршрут</button>
+</div>
+
+<script>
+    let currentFloor = 1;
+    let currentRoute = [];
+    let data = { scale: 2, translateX: 0, translateY: 0, isDragging: false, initialDistance: null, activeTouches: {} };
+    const svgContainer = document.querySelector('.svg-container');
+    const floorSvg = document.querySelector('.floor-svg');
+    const routeSvg = document.querySelector('.route-svg');
+    const floorButtonsDiv = document.getElementById('floor-buttons');
+    const clearRouteButton = document.getElementById('clear-route');
+
+    window.setSvgContent = function(floorNumber, svgContent) {
+        currentFloor = floorNumber;
+        floorSvg.innerHTML = svgContent;
+        updateTransform();
+        if (currentRoute.length > 0) {
+            displayRouteForCurrentFloor();
+        } else {
+            routeSvg.innerHTML = ''; // Очищаем маршрут, если он отсутствует
+        }
+    };
+
+    window.setFloors = function(floors) {
+        floorButtonsDiv.innerHTML = '';
+        floors.forEach(floor => {
+            const button = document.createElement('button');
+            button.textContent = `Этаж ${floor}`;
+            button.className = 'btn btn-light';
+            if (floor === 1) button.classList.add('active-floor-highlight');
+            button.onclick = () => {
+                currentFloor = floor;
+                window.android.displayFloor(floor);
+                updateFloorButtons();
+            };
+            floorButtonsDiv.appendChild(button);
+        });
+    };
+
+    window.displayRoute = function(routeJson) {
+        currentRoute = JSON.parse(routeJson);
+        displayRouteForCurrentFloor();
+        clearRouteButton.style.display = currentRoute.length > 0 ? 'block' : 'none';
+        updateTransform();
+    };
+
+    function displayRouteForCurrentFloor() {
+        routeSvg.innerHTML = '';
+        if (currentRoute.length === 0) return;
+
+        // Проверяем, есть ли узлы на текущем этаже
+        const hasNodesOnFloor = currentRoute.some(node => node.floor === currentFloor);
+        if (!hasNodesOnFloor) {
+            console.log(`No nodes on floor ${currentFloor}`);
+            return;
+        }
+
+        for (let i = 0; i < currentRoute.length - 1; i++) {
+            const from = currentRoute[i];
+            const to = currentRoute[i + 1];
+            if (from.floor === currentFloor && to.floor === currentFloor) {
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", from.x);
+                line.setAttribute("y1", from.y);
+                line.setAttribute("x2", to.x);
+                line.setAttribute("y2", to.y);
+                line.setAttribute("stroke", "darkblue");
+                line.setAttribute("stroke-width", "10");
+                routeSvg.appendChild(line);
+            }
+        }
+        addMarkers();
+    }
+
+    function addMarkers() {
+        const startNode = currentRoute[0];
+        const endNode = currentRoute[currentRoute.length - 1];
+        if (startNode.floor === currentFloor) {
+            addMarker(startNode, "darkblue", "Начало", 15);
+        }
+        if (endNode.floor === currentFloor && endNode.id !== startNode.id) {
+            addMarker(endNode, "darkblue", "Конец", 15);
+        }
+    }
+
+    function addMarker(node, color, label, radius) {
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", node.x);
+        circle.setAttribute("cy", node.y);
+        circle.setAttribute("r", radius);
+        circle.setAttribute("fill", color);
+        routeSvg.appendChild(circle);
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", node.x + 20);
+        text.setAttribute("y", node.y - 20);
+        text.setAttribute("fill", "black");
+        text.setAttribute("font-size", "45px");
+        text.textContent = label;
+        routeSvg.appendChild(text);
+    }
+
+    function updateFloorButtons() {
+        document.querySelectorAll('#floor-buttons button').forEach(button => {
+            button.classList.toggle('active-floor-highlight', parseInt(button.textContent.split(' ')[1]) === currentFloor);
+        });
+    }
+
+    function updateTransform() {
+        floorSvg.style.transform = `translate(${data.translateX}px, ${data.translateY}px) scale(${data.scale})`;
+        routeSvg.style.transform = `translate(${data.translateX}px, ${data.translateY}px) scale(${data.scale})`;
+    }
+
+    function clampPosition() {
+        const containerWidth = svgContainer.offsetWidth;
+        const containerHeight = svgContainer.offsetHeight;
+        const scaledWidth = 4500 * data.scale;
+        const scaledHeight = 2500 * data.scale;
+        const minX = Math.min(0, containerWidth - scaledWidth);
+        const maxX = 0;
+        const minY = Math.min(0, containerHeight - scaledHeight);
+        const maxY = 0;
+        data.translateX = Math.max(minX, Math.min(maxX, data.translateX));
+        data.translateY = Math.max(minY, Math.min(maxY, data.translateY));
+    }
+
+    window.onload = () => window.android.displayFloor(1);
+
+    svgContainer.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const scaleAmount = 0.1;
+        const oldScale = data.scale;
+        if (e.deltaY < 0 && data.scale <= 1.7) data.scale += scaleAmount;
+        else data.scale = Math.max(0.25, data.scale - scaleAmount);
+        const rect = svgContainer.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const offsetX = (mouseX - data.translateX) / oldScale;
+        const offsetY = (mouseY - data.translateY) / oldScale;
+        data.translateX = mouseX - offsetX * data.scale;
+        data.translateY = mouseY - offsetY * data.scale;
+        clampPosition();
+        updateTransform();
+    });
+
+    svgContainer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        data.isDragging = true;
+        data.startX = e.clientX - data.translateX;
+        data.startY = e.clientY - data.translateY;
+    });
+
+    svgContainer.addEventListener('mousemove', (e) => {
+        if (data.isDragging) {
+            data.translateX = e.clientX - data.startX;
+            data.translateY = e.clientY - data.startY;
+            clampPosition();
+            updateTransform();
+        }
+    });
+
+    svgContainer.addEventListener('mouseup', () => { data.isDragging = false; });
+    svgContainer.addEventListener('mouseleave', () => { data.isDragging = false; });
+
+    svgContainer.addEventListener('touchstart', (e) => {
+        for (let touch of e.changedTouches) data.activeTouches[touch.identifier] = touch;
+        if (e.touches.length === 2) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            data.initialDistance = Math.sqrt(dx * dx + dy * dy);
+            data.initialCenter = getTouchCenter(e.touches);
+        } else if (e.touches.length === 1) {
+            data.isDragging = true;
+            const touch = e.touches[0];
+            data.startTouchX = touch.clientX - data.translateX;
+            data.startTouchY = touch.clientY - data.translateY;
+        }
+    });
+
+    svgContainer.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && data.initialDistance) {
+            e.preventDefault();
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const currentDistance = Math.sqrt(dx * dx + dy * dy);
+            const scaleChange = currentDistance / data.initialDistance;
+            const newScale = Math.max(0.17, Math.min(data.scale * scaleChange, 2.5));
+            const currentCenter = getTouchCenter(e.touches);
+            const offsetX = (currentCenter.x - data.translateX) / data.scale;
+            const offsetY = (currentCenter.y - data.translateY) / data.scale;
+            data.translateX = currentCenter.x - offsetX * newScale;
+            data.translateY = currentCenter.y - offsetY * newScale;
+            data.scale = newScale;
+            data.initialDistance = currentDistance;
+            clampPosition();
+            updateTransform();
+        } else if (e.touches.length === 1 && data.isDragging) {
+            const touch = e.touches[0];
+            data.translateX = touch.clientX - data.startTouchX;
+            data.translateY = touch.clientY - data.startTouchY;
+            clampPosition();
+            updateTransform();
+        }
+    });
+
+    svgContainer.addEventListener('touchend', (e) => {
+        for (let touch of e.changedTouches) delete data.activeTouches[touch.identifier];
+        if (e.touches.length < 2) data.initialDistance = null;
+        else {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            data.initialDistance = Math.sqrt(dx * dx + dy * dy);
+        }
+        if (e.touches.length === 0) data.isDragging = false;
+    });
+
+    function getTouchCenter(touches) {
+        const rect = svgContainer.getBoundingClientRect();
+        const x = (touches[0].clientX + touches[1].clientX) / 2 - rect.left;
+        const y = (touches[0].clientY + touches[1].clientY) / 2 - rect.top;
+        return { x, y };
+    }
+
+    clearRouteButton.onclick = () => {
+        currentRoute = [];
+        routeSvg.innerHTML = '';
+        clearRouteButton.style.display = 'none';
+        window.android.clearRoute();
+        updateFloorButtons();
+    };
+
+    function updateTransformOnResize() {
+        clampPosition();
+        updateTransform();
+    }
+    window.addEventListener('resize', updateTransformOnResize);
+</script>
+</body>
+</html>
