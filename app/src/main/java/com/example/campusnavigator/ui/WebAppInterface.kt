@@ -20,4 +20,6 @@ class WebAppInterface(private val context: Context, private val fragment: RouteF
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
+
+
 }

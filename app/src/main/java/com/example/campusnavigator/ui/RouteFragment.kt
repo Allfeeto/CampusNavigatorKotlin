@@ -55,6 +55,10 @@ class RouteFragment : Fragment() {
 
         startAutoComplete = view.findViewById(R.id.start_autocomplete)
         endAutoComplete = view.findViewById(R.id.end_autocomplete)
+
+
+
+
         findRouteButton = view.findViewById(R.id.find_route_button)
         webView = view.findViewById(R.id.webview)
         floorRecyclerView = view.findViewById(R.id.floor_recycler_view)
@@ -66,7 +70,7 @@ class RouteFragment : Fragment() {
         // Инициализация Retrofit
         val retrofit = Retrofit.Builder()
             // .baseUrl("http://10.0.2.2:8000/")
-            .baseUrl("https://prayer-cancellation-insulation-authentic.trycloudflare.com/")
+            .baseUrl("https://se-context-utilization-projects.trycloudflare.com//")
             .addConverterFactory(ScalarsConverterFactory.create())
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -111,6 +115,12 @@ class RouteFragment : Fragment() {
 
         return view
     }
+
+
+
+
+
+
 
     private fun loadFloors() {
         lifecycleScope.launch(Dispatchers.IO) {
