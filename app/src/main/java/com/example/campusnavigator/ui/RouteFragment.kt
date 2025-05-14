@@ -77,6 +77,9 @@ class RouteFragment : Fragment() {
         webView.settings.domStorageEnabled = true
         webView.settings.loadWithOverviewMode = true
         webView.settings.useWideViewPort = true
+        webView.setInitialScale(100); // Устанавливаем масштаб 1:1 (100%)
+        webView.settings.builtInZoomControls = false; // Отключаем встроенное масштабирование
+        webView.settings.displayZoomControls = false; // Отключаем элементы управления масштабом
         webView.webViewClient = WebViewClient()
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
