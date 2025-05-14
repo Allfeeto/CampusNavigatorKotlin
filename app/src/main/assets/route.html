@@ -26,41 +26,46 @@
 
 <script>
     let currentFloor = 1;
-    let currentRoute = [];
-    let data = { scale: 1, translateX: 0, translateY: 0, isDragging: false, initialDistance: null, activeTouches: {} };
-    const svgContainer = document.querySelector('.svg-container');
-    const floorSvg = document.querySelector('.floor-svg');
-    const routeSvg = document.querySelector('.route-svg');
-    const floorButtonsDiv = document.getElementById('floor-buttons');
-    const clearRouteButton = document.getElementById('clear-route');
+let currentRoute = [];
+const svgContainer = document.querySelector('.svg-container');
+const floorSvg = document.querySelector('.floor-svg');
+const routeSvg = document.querySelector('.route-svg');
+const floorButtonsDiv = document.getElementById('floor-buttons');
+const clearRouteButton = document.getElementById('clear-route');
 
-    window.setSvgContent = function(floorNumber, svgContent) {
-        currentFloor = floorNumber;
-        floorSvg.innerHTML = svgContent;
-        updateTransform();
-        if (currentRoute.length > 0) displayRoute();
-    };
+// Установка SVG для этажа
+window.setSvgContent = function(floorNumber, svgContent) {
+    currentFloor = floorNumber;
+    floorSvg.innerHTML = svgContent;
+    if (currentRoute.length > 0) {
+        displayRoute(JSON.stringify(currentRoute)); // Обновляем маршрут при смене этажа
+    }
+    updateFloorButtons();
+};
 
-    window.setFloors = function(floors) {
-        floorButtonsDiv.innerHTML = '';
-        floors.forEach(floor => {
-            const button = document.createElement('button');
-            button.textContent = `Этаж ${floor}`;
-            button.className = 'btn btn-light';
-            if (floor === 1) button.classList.add('active-floor-highlight');
-            button.onclick = () => {
-                currentFloor = floor;
-                window.android.displayFloor(floor);
-                updateFloorButtons();
-            };
-            floorButtonsDiv.appendChild(button);
-        });
-    };
+// Установка списка этажей
+window.setFloors = function(floors) {
+    floorButtonsDiv.innerHTML = '';
+    floors.forEach(floor => {
+        const button = document.createElement('button');
+        button.textContent = `Этаж ${floor}`;
+        button.className = 'btn btn-light';
+        button.dataset.floor = floor; // Сохраняем номер этажа
+        button.onclick = () => {
+            displayFloor(floor);
+        };
+        floorButtonsDiv.appendChild(button);
+    });
+    updateFloorButtons();
+};
 
-    window.displayRoute = function(routeJson) {
+// Отображение маршрута
+window.displayRoute = function(routeJson) {
+    try {
         currentRoute = JSON.parse(routeJson);
-        routeSvg.innerHTML = '';
-        if (currentRoute.some(node => node.floor === currentFloor)) {
+        routeSvg.innerHTML = ''; // Очищаем предыдущий маршрут
+        if (currentRoute.length > 0) {
+            // Отрисовка маршрута для текущего этажа
             for (let i = 0; i < currentRoute.length - 1; i++) {
                 const from = currentRoute[i];
                 const to = currentRoute[i + 1];
@@ -76,65 +81,112 @@
                 }
             }
             addMarkers();
+            highlightFloorsInRoute();
         }
         clearRouteButton.style.display = currentRoute.length > 0 ? 'block' : 'none';
-        updateTransform();
-    };
-
-    function addMarkers() {
-        const startNode = currentRoute[0];
-        const endNode = currentRoute[currentRoute.length - 1];
-        if (startNode.floor === currentFloor) {
-            addMarker(startNode, "darkblue", "Начало", 15);
-        }
-        if (endNode.floor === currentFloor && endNode.id !== startNode.id) {
-            addMarker(endNode, "darkblue", "Конец", 15);
-        }
+    } catch (e) {
+        console.error('Ошибка парсинга маршрута:', e);
     }
+};
 
-    function addMarker(node, color, label, radius) {
+// Добавление маркеров
+function addMarkers() {
+    const startNode = currentRoute[0];
+    const endNode = currentRoute[currentRoute.length - 1];
+    const markersToAdd = [];
+
+    // Маркер для начальной точки
+    if (startNode && startNode.floor === currentFloor) {
+        markersToAdd.push({ node: startNode, color: "darkblue", label: "Начало", radius: 15 });
+    }
+    // Маркер для конечной точки
+    if (endNode && endNode.floor === currentFloor && endNode.id !== startNode.id) {
+        markersToAdd.push({ node: endNode, color: "darkblue", label: "Конец", radius: 15 });
+    }
+    // Маркеры для промежуточных узлов
+    currentRoute.forEach((node, index) => {
+        if (node.floor === currentFloor && node.id !== startNode.id && node.id !== endNode.id) {
+            markersToAdd.push({ node: node, color: "darkblue", label: "", radius: 5 });
+        }
+    });
+
+    markersToAdd.forEach(({ node, color, label, radius }) => {
         const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         circle.setAttribute("cx", node.x);
         circle.setAttribute("cy", node.y);
         circle.setAttribute("r", radius);
         circle.setAttribute("fill", color);
+        circle.classList.add('route-marker');
         routeSvg.appendChild(circle);
 
-        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        text.setAttribute("x", node.x + 20);
-        text.setAttribute("y", node.y - 20);
-        text.setAttribute("fill", "black");
-        text.setAttribute("font-size", "45px");
-        text.textContent = label;
-        routeSvg.appendChild(text);
-    }
+        if (label) {
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute("x", node.x + 20);
+            text.setAttribute("y", node.y - 20);
+            text.setAttribute("fill", "black");
+            text.setAttribute("font-size", "45px");
+            text.textContent = label;
+            text.setAttribute("visibility", "visible");
+            routeSvg.appendChild(text);
+        }
+    });
+}
 
-    function updateFloorButtons() {
-        document.querySelectorAll('#floor-buttons button').forEach(button => {
-            button.classList.toggle('active-floor-highlight', parseInt(button.textContent.split(' ')[1]) === currentFloor);
-        });
-    }
+// Выделение этажей, участвующих в маршруте
+function highlightFloorsInRoute() {
+    const floorsInRoute = [...new Set(currentRoute.map(node => node.floor))].sort((a, b) => a - b);
+    document.querySelectorAll('#floor-buttons button').forEach(button => {
+        const floorNumber = parseInt(button.dataset.floor, 10);
+        button.classList.toggle('active-floor-highlight', floorsInRoute.includes(floorNumber));
+    });
+}
 
-    function updateTransform() {
-        floorSvg.style.transform = `translate(${data.translateX}px, ${data.translateY}px) scale(${data.scale})`;
-        routeSvg.style.transform = `translate(${data.translateX}px, ${data.translateY}px) scale(${data.scale})`;
-    }
+// Отображение выбранного этажа
+function displayFloor(floorNumber) {
+    currentFloor = floorNumber;
+    window.android.displayFloor(floorNumber); // Запрашиваем SVG для этажа
+    updateFloorButtons();
+}
 
-    function clampPosition() {
-        const containerWidth = svgContainer.offsetWidth;
-        const containerHeight = svgContainer.offsetHeight;
-        const scaledWidth = 4500 * data.scale;
-        const scaledHeight = 2500 * data.scale;
-        const minX = Math.min(0, containerWidth - scaledWidth);
-        const maxX = 0;
-        const minY = Math.min(0, containerHeight - scaledHeight);
-        const maxY = 0;
-        data.translateX = Math.max(minX, Math.min(maxX, data.translateX));
-        data.translateY = Math.max(minY, Math.min(maxY, data.translateY));
-    }
+// Обновление стилей кнопок этажей
+function updateFloorButtons() {
+    document.querySelectorAll('#floor-buttons button').forEach(button => {
+        const floorNumber = parseInt(button.dataset.floor, 10);
+        button.classList.toggle('active-floor-highlight', floorNumber === currentFloor);
+    });
+}
 
-    // Инициализация первого этажа
-    window.onload = () => window.android.displayFloor(1);
+// Очистка маршрута
+clearRouteButton.onclick = () => {
+    currentRoute = [];
+    routeSvg.innerHTML = '';
+    clearRouteButton.style.display = 'none';
+    window.android.clearRoute();
+    displayFloor(1); // Возвращаемся на первый этаж
+    updateFloorButtons();
+};
+
+// Инициализация первого этажа
+window.onload = () => {
+    window.android.displayFloor(1);
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     // Обработчики событий
     svgContainer.addEventListener('wheel', (e) => {

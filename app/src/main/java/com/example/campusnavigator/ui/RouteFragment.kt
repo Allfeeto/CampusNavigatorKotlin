@@ -65,7 +65,8 @@ class RouteFragment : Fragment() {
 
         // Инициализация Retrofit
         val retrofit = Retrofit.Builder()
-            .baseUrl("http://10.0.2.2:8000/")
+            // .baseUrl("http://10.0.2.2:8000/")
+            .baseUrl("https://prayer-cancellation-insulation-authentic.trycloudflare.com/")
             .addConverterFactory(ScalarsConverterFactory.create())
             .addConverterFactory(GsonConverterFactory.create())
             .build()
